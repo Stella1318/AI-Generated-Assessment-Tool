@@ -17,16 +17,21 @@ class QuizManager:
         self.total_questions = len(questions)
 
     def get_question_at_index(self, index: int):
-        valid_index = index % self.total_questions
-        return self.questions[valid_index]
+        return self.questions[index % self.total_questions]
 
     def next_question_index(self, direction=1):
         if "question_index" not in st.session_state:
             st.session_state["question_index"] = 0
 
-        current_index = st.session_state["question_index"]
-        new_index = (current_index + direction) % self.total_questions
-        st.session_state["question_index"] = new_index
+        st.session_state["question_index"] = (st.session_state["question_index"] + direction) % self.total_questions
+
+def initialize_session_state():
+    if 'question_bank' not in st.session_state:
+        st.session_state.question_bank = None
+    if 'question_index' not in st.session_state:
+        st.session_state.question_index = 0
+    if 'score' not in st.session_state:
+        st.session_state.score = 0
 
 def main():
     embed_config = {
@@ -35,82 +40,55 @@ def main():
         "location": "us-central1"
     }
 
-    # Initialize session state
-    if 'question_bank' not in st.session_state:
-        st.session_state.question_bank = None
-    if 'question_index' not in st.session_state:
-        st.session_state.question_index = 0
-    if 'score' not in st.session_state:
-        st.session_state.score = 0
+    initialize_session_state()
 
-    screen = st.empty()
-    with screen.container():
-        st.header("Quiz Builder")
-        processor = PDFProcessor()
-        processor.ingest_documents()
+    st.header("Quiz Builder")
+    processor = PDFProcessor()
+    processor.ingest_documents()
 
-        embed_client = EmbeddingClient(**embed_config)
+    embed_client = EmbeddingClient(**embed_config)
+    chroma_creator = ChromaCollectionCreator(processor, embed_client)
 
-        chroma_creator = ChromaCollectionCreator(processor, embed_client)
+    with st.form("Load Data to Chroma"):
+        st.subheader("Quiz Builder")
+        st.write("Select PDFs for Ingestion, the topic for the quiz, and click Generate!")
 
-        with st.form("Load Data to Chroma"):
-            st.subheader("Quiz Builder")
-            st.write("Select PDFs for Ingestion, the topic for the quiz, and click Generate!")
+        topic_input = st.text_input("Topic for Generative Quiz", placeholder="Enter the topic of the document")
+        num_questions = st.slider("Number of Questions", min_value=1, max_value=10, value=4)
 
-            topic_input = st.text_input("Topic for Generative Quiz", placeholder="Enter the topic of the document")
-            num_questions = st.slider("Number of Questions", min_value=1, max_value=10, value=1)
-
-            submitted = st.form_submit_button("Submit")
-            if submitted:
-                chroma_creator.create_chroma_collection()
-
-                st.write(topic_input)
-
-                # Generate the quiz questions
-                generator = QuizGenerator(topic_input, num_questions, chroma_creator)
-                st.session_state.question_bank = generator.generate_quiz()
-                st.session_state.question_index = 0
-                st.session_state.score = 0
+        if st.form_submit_button("Submit"):
+            chroma_creator.create_chroma_collection()
+            generator = QuizGenerator(topic_input, num_questions, chroma_creator)
+            st.session_state.question_bank = generator.generate_quiz()
+            st.session_state.question_index = 0
+            st.session_state.score = 0
 
     if st.session_state.question_bank:
-        screen.empty()
-        with st.container():
-            st.header("Generated Quiz Question: ")
+        st.header("Generated Quiz Question: ")
 
-            # Initialize the QuizManager with the generated questions
-            quiz_manager = QuizManager(st.session_state.question_bank)
+        quiz_manager = QuizManager(st.session_state.question_bank)
+        current_question = quiz_manager.get_question_at_index(st.session_state.question_index)
+        choices = [f"{choice['key']}) {choice['value']}" for choice in current_question['choices']]
 
-            # Get the current question based on the session state index
-            current_question = quiz_manager.get_question_at_index(st.session_state.question_index)
-            choices = [f"{choice['key']}) {choice['value']}" for choice in current_question['choices']]
+        with st.form("Multiple Choice Question"):
+            st.write(current_question['question'])
+            answer = st.radio('Choose the correct answer', choices, key="current_answer")
+            if st.form_submit_button("Submit Answer"):
+                if answer.startswith(current_question['answer']):
+                    st.success("Correct!")
+                    st.session_state.score += 1
+                else:
+                    st.error("Incorrect!")
 
-            with st.form("Multiple Choice Question"):
-                st.write(current_question['question'])
-                answer = st.radio('Choose the correct answer', choices, key="current_answer")
-                submit_answer = st.form_submit_button("Submit Answer")
+            col1, col2 = st.columns([1, 1])
+            if col1.form_submit_button("Previous"):
+                quiz_manager.next_question_index(direction=-1)
+                st.experimental_rerun()
+            if col2.form_submit_button("Next"):
+                quiz_manager.next_question_index(direction=1)
+                st.experimental_rerun()
 
-                if submit_answer:
-                    correct_answer_key = current_question['answer']
-                    if answer.startswith(correct_answer_key):
-                        st.success("Correct!")
-                        st.session_state.score += 1
-                    else:
-                        st.error("Incorrect!")
-
-                col1, col2 = st.columns([1, 1])
-                with col1:
-                    prev_clicked = st.form_submit_button("Previous")
-                with col2:
-                    next_clicked = st.form_submit_button("Next")
-
-                if prev_clicked:
-                    quiz_manager.next_question_index(direction=-1)
-                    st.experimental_rerun()
-                if next_clicked:
-                    quiz_manager.next_question_index(direction=1)
-                    st.experimental_rerun()
-
-            st.write(f"Score: {st.session_state.score}/{len(st.session_state.question_bank)}")
+        st.write(f"Score: {st.session_state.score}/{len(st.session_state.question_bank)}")
 
 if __name__ == "__main__":
     main()
