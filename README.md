@@ -17,3 +17,6 @@ This repository contains the source code, documentation, and resources necessary
 
 # Contributors
 - Mikhail Ocampo (@mikhail-ocampo): Provided valuable insights and feedback.
+
+# Testing and Implementation
+https://www.loom.com/share/2e5009127fd649b6a230fa9a524eb7b9?sid=b00ad332-257f-4cbd-976b-8bec04f47e55
